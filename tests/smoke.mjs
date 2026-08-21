@@ -39,18 +39,26 @@ assert.equal(
 );
 assert.equal(vm.runInContext('settings.widgetVisible', context), true);
 assert.equal(vm.runInContext('settings.connectionProfileId', context), '');
+assert.equal(vm.runInContext('settings.promptSchemaVersion', context), 2);
 assert.equal(vm.runInContext("getProcessLabel()", context), '찰떡 교정하기');
 assert.match(vm.runInContext("getSourceHint('light')", context), /맞춤법/);
 assert.match(vm.runInContext("getSourceHint('polish')", context), /문체/);
 
 const lightPrompt = vm.runInContext("buildPrompt('원문', 'light')", context);
-assert.match(lightPrompt, /\[기본 지시사항\]/);
-assert.doesNotMatch(lightPrompt, /\[찰떡 지시사항\]/);
-assert.match(lightPrompt, /\[안돼 지시사항\]/);
-assert.match(lightPrompt, /\[원문\]\n원문$/);
+assert.match(lightPrompt, /\[기본 지시사항 \/ Base instructions\]/);
+assert.doesNotMatch(lightPrompt, /\[찰떡 지시사항 \/ Style instructions\]/);
+assert.match(lightPrompt, /\[안돼 지시사항 \/ Prohibitions\]/);
+assert.match(lightPrompt, /\[원문 \/ Source\]\n원문$/);
 
 const polishPrompt = vm.runInContext("buildPrompt('원문', 'polish')", context);
-assert.match(polishPrompt, /\[찰떡 지시사항\]/);
+assert.match(polishPrompt, /\[찰떡 지시사항 \/ Style instructions\]/);
+
+const englishPrompt = vm.runInContext("buildPrompt(\"He don't knows why.\", 'polish')", context);
+assert.match(englishPrompt, /영어는 영어로 유지/);
+assert.match(englishPrompt, /instructions are written|추가 지시사항은 한국어와 영어/i);
+assert.match(englishPrompt, /spelling, grammar, punctuation, articles, prepositions/);
+assert.match(englishPrompt, /영미권 소설 문체/);
+assert.match(englishPrompt, /\[원문 \/ Source\]\nHe don't knows why\.$/);
 
 const preservedLabel = vm.runInContext("cleanOutput('결과: 실패였다.')", context);
 assert.equal(preservedLabel, '결과: 실패였다.');
@@ -61,9 +69,40 @@ assert.equal(strippedHeader, '다듬은 문장');
 const strippedFence = vm.runInContext("cleanOutput('```text\\n다듬은 문장\\n```')", context);
 assert.equal(strippedFence, '다듬은 문장');
 
+const preservedEnglishLabel = vm.runInContext("cleanOutput('Result: Failure.')", context);
+assert.equal(preservedEnglishLabel, 'Result: Failure.');
+
+const strippedEnglishHeader = vm.runInContext("cleanOutput('Result:\\nRevised sentence.')", context);
+assert.equal(strippedEnglishHeader, 'Revised sentence.');
+
+const strippedEnglishPreamble = vm.runInContext("cleanOutput(\"Here's the revised text:\\nRevised sentence.\")", context);
+assert.equal(strippedEnglishPreamble, 'Revised sentence.');
+
 vm.runInContext("settings.forbiddenWords = ['문득', '어쩐지']", context);
 const forbiddenPrompt = vm.runInContext("buildPrompt('원문', 'polish')", context);
-assert.match(forbiddenPrompt, /금지단어: 문득, 어쩐지/);
+assert.match(forbiddenPrompt, /금지단어 \/ Banned terms: 문득, 어쩐지/);
+
+const migratedBasePrompt = vm.runInContext(`(() => {
+    const saved = {
+        promptSchemaVersion: 1,
+        basePrompt: LEGACY_DEFAULT_PROMPTS.basePrompt,
+        polishPrompt: LEGACY_DEFAULT_PROMPTS.polishPrompt,
+        forbiddenPrompt: LEGACY_DEFAULT_PROMPTS.forbiddenPrompt,
+    };
+    migratePromptSettings(saved);
+    return saved.basePrompt;
+})()`, context);
+assert.equal(migratedBasePrompt, vm.runInContext('DEFAULT_SETTINGS.basePrompt', context));
+
+const preservedCustomPrompt = vm.runInContext(`(() => {
+    const saved = {
+        promptSchemaVersion: 1,
+        basePrompt: 'Keep contractions. 욕설은 유지하세요.',
+    };
+    migratePromptSettings(saved);
+    return saved.basePrompt;
+})()`, context);
+assert.equal(preservedCustomPrompt, 'Keep contractions. 욕설은 유지하세요.');
 
 vm.runInContext(`
     globalThis.__gctFields = {

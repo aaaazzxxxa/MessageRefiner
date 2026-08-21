@@ -340,6 +340,13 @@ img.gct-busy {
     background: color-mix(in srgb, var(--gct-surface) 86%, transparent);
 }
 
+.gct-prompt-language-note {
+    display: block;
+    margin-bottom: 10px;
+    opacity: .72;
+    line-height: 1.4;
+}
+
 .gct-inline-settings label {
     display: block;
     margin-top: 9px;

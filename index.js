@@ -5,14 +5,14 @@ const EXTENSION_FOLDER = decodeURIComponent(EXTENSION_BASE_URL.pathname)
     .replace(/\/$/, '');
 const ICON_PATH = new URL('assets/gaetteok-chaltteok.png', EXTENSION_BASE_URL).href;
 const CONNECTION_SERVICE_PATH = new URL('../../shared.js', EXTENSION_BASE_URL).href;
+const PROMPT_SCHEMA_VERSION = 2;
 
 const SOURCE_HINTS = Object.freeze({
-    light: '맞춤법, 띄어쓰기, 조사, 어순 등을 가볍게 바로잡습니다.',
-    polish: '번역투와 어색한 표현, 문장 호흡과 리듬, 문체까지 더 자세히 다듬습니다.',
+    light: '한국어·영어의 맞춤법/철자, 문법, 조사/전치사, 어순 등을 가볍게 바로잡습니다.',
+    polish: '한국어·영어의 어색한 표현, 문장 호흡과 리듬, 문체까지 더 자세히 다듬습니다.',
 });
 
-const DEFAULT_SETTINGS = Object.freeze({
-    mode: 'polish',
+const LEGACY_DEFAULT_PROMPTS = Object.freeze({
     basePrompt: [
         '당신은 사용자가 이미 작성한 한국어 메시지를 보내기 전에 다듬는 후처리기입니다.',
         '대필하거나 내용을 확장하지 말고 원문의 의미, 시점, 인물, 정보, 대사, 욕설, 유머, 감정 강도를 유지하세요.',
@@ -27,6 +27,33 @@ const DEFAULT_SETTINGS = Object.freeze({
     forbiddenPrompt: [
         '입력에 없는 행동, 감정, 사건, 설정, 소품, 배경, 원인, 결과, 상대 캐릭터의 반응, 생각, 대사를 추가하지 마세요.',
         '원문의 의미, 시점, 사실관계, 관계, 서술 주체를 바꾸지 마세요.',
+        '묘사를 과장하거나 원문에 있는 정보를 삭제하지 마세요.',
+        '금지단어가 지정되면 결과에 사용하지 말고 문맥에 맞는 다른 표현으로 대체하세요.',
+    ].join('\n'),
+});
+
+const DEFAULT_SETTINGS = Object.freeze({
+    mode: 'polish',
+    promptSchemaVersion: PROMPT_SCHEMA_VERSION,
+    basePrompt: [
+        '당신은 사용자가 이미 작성한 한국어 또는 영어 메시지를 보내기 전에 다듬는 후처리기입니다.',
+        '원문의 언어를 감지하고 번역하지 말고 같은 언어로 출력하세요. 한국어는 한국어로, 영어는 영어로 유지하고 한영 혼합문은 각 부분의 언어를 유지하세요.',
+        '추가 지시사항은 한국어와 영어 어느 언어로 작성되어도 모두 해석해 적용하되, 지시사항에 사용된 언어를 결과 언어로 간주하지 마세요.',
+        '대필하거나 내용을 확장하지 말고 원문의 의미, 시점, 인물, 정보, 대사, 욕설, 유머, 감정 강도를 유지하세요.',
+        '한국어에서는 맞춤법, 띄어쓰기, 조사, 어순, 문장 호응을 고치고, 영어에서는 spelling, grammar, punctuation, articles, prepositions, syntax, agreement를 고치세요.',
+        '두 언어 모두 불필요한 반복과 어색한 연결을 자연스럽게 고치세요.',
+        '설명, 평가, 머리말, 따옴표, 마크다운 코드 블록 없이 수정된 본문만 출력하세요.',
+    ].join('\n'),
+    polishPrompt: [
+        '단순 교정을 넘어 원문의 언어와 장르에 맞는 자연스러운 문체로 다듬으세요.',
+        '한국어 원문은 번역투를 줄이고 자연스러운 한국 웹소설 문체로, 영어 원문은 어색하거나 비원어민처럼 들리는 표현을 줄이고 자연스러운 영미권 소설 문체로 다듬으세요.',
+        '어색한 표현을 더 적절한 어휘로 바꾸고 문장 흐름, 호흡, 리듬을 정돈하세요.',
+        '필요하면 문장을 나누거나 합치되 원문의 욕설, 유머, 날것 같은 감정선은 유지하세요.',
+    ].join('\n'),
+    forbiddenPrompt: [
+        '입력에 없는 행동, 감정, 사건, 설정, 소품, 배경, 원인, 결과, 상대 캐릭터의 반응, 생각, 대사를 추가하지 마세요.',
+        '원문의 의미, 시점, 사실관계, 관계, 서술 주체를 바꾸지 마세요.',
+        '원문의 언어를 바꾸거나 전체 또는 일부를 다른 언어로 번역하지 마세요.',
         '묘사를 과장하거나 원문에 있는 정보를 삭제하지 마세요.',
         '금지단어가 지정되면 결과에 사용하지 말고 문맥에 맞는 다른 표현으로 대체하세요.',
     ].join('\n'),
@@ -52,16 +79,34 @@ function cloneDefaults() {
     return structuredClone(DEFAULT_SETTINGS);
 }
 
+function migratePromptSettings(saved) {
+    const currentVersion = Number(saved.promptSchemaVersion) || 1;
+    if (currentVersion >= PROMPT_SCHEMA_VERSION) return false;
+
+    for (const key of ['basePrompt', 'polishPrompt', 'forbiddenPrompt']) {
+        if (saved[key] === LEGACY_DEFAULT_PROMPTS[key]) {
+            saved[key] = DEFAULT_SETTINGS[key];
+        }
+    }
+    saved.promptSchemaVersion = PROMPT_SCHEMA_VERSION;
+    return true;
+}
+
 function loadSettings() {
-    const { extensionSettings } = getContext();
+    const context = getContext();
+    const { extensionSettings } = context;
     const saved = extensionSettings[MODULE_NAME];
+    let settingsChanged = false;
 
     if (!saved || typeof saved !== 'object') {
         extensionSettings[MODULE_NAME] = cloneDefaults();
+        settingsChanged = true;
     } else {
+        settingsChanged = migratePromptSettings(saved);
         for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
             if (!Object.hasOwn(saved, key)) {
                 saved[key] = structuredClone(value);
+                settingsChanged = true;
             }
         }
     }
@@ -72,6 +117,7 @@ function loadSettings() {
     settings.connectionProfileId = typeof settings.connectionProfileId === 'string' ? settings.connectionProfileId : '';
     settings.widgetVisible = settings.widgetVisible !== false;
     settings.widgetPosition = normalizeWidgetPosition(settings.widgetPosition);
+    if (settingsChanged) context.saveSettingsDebounced();
     return settings;
 }
 
@@ -160,20 +206,20 @@ function setInputValue(value) {
 function buildPrompt(source, mode = settings.mode, usePlaceholder = false) {
     const original = usePlaceholder ? '{{원문}}' : source;
     const sections = [
-        `[기본 지시사항]\n${settings.basePrompt.trim()}`,
+        `[기본 지시사항 / Base instructions]\n${settings.basePrompt.trim()}`,
     ];
 
     if (mode === 'polish') {
-        sections.push(`[찰떡 지시사항]\n${settings.polishPrompt.trim()}`);
+        sections.push(`[찰떡 지시사항 / Style instructions]\n${settings.polishPrompt.trim()}`);
     }
 
-    sections.push(`[안돼 지시사항]\n${settings.forbiddenPrompt.trim()}`);
+    sections.push(`[안돼 지시사항 / Prohibitions]\n${settings.forbiddenPrompt.trim()}`);
 
     if (settings.forbiddenWords.length > 0) {
-        sections.push(`금지단어: ${settings.forbiddenWords.join(', ')}`);
+        sections.push(`금지단어 / Banned terms: ${settings.forbiddenWords.join(', ')}`);
     }
 
-    sections.push(`[원문]\n${original}`);
+    sections.push(`[원문 / Source]\n${original}`);
     return sections.filter((section) => section.trim()).join('\n\n');
 }
 
@@ -192,7 +238,7 @@ function cleanOutput(raw) {
     let output = String(raw ?? '').trim();
     const fenced = output.match(/^```(?:text|plaintext|markdown)?\s*\n([\s\S]*?)\n```$/i);
     if (fenced) output = fenced[1].trim();
-    output = output.replace(/^(?:수정된 본문|결과|출력)\s*:\s*\n/i, '').trim();
+    output = output.replace(/^(?:수정된 본문|결과|출력|(?:here(?:'s| is)\s+)?(?:the\s+)?revised (?:text|message)|result|output)\s*:\s*\n/i, '').trim();
     return output;
 }
 
@@ -628,6 +674,7 @@ function updatePromptPreview() {
 function resetPromptSettings() {
     if (!confirm('개떡찰떡 지시사항과 금지단어를 기본값으로 되돌릴까요?')) return;
     settings.mode = DEFAULT_SETTINGS.mode;
+    settings.promptSchemaVersion = DEFAULT_SETTINGS.promptSchemaVersion;
     settings.basePrompt = DEFAULT_SETTINGS.basePrompt;
     settings.polishPrompt = DEFAULT_SETTINGS.polishPrompt;
     settings.forbiddenPrompt = DEFAULT_SETTINGS.forbiddenPrompt;
@@ -722,6 +769,7 @@ function createComposerUI() {
             </div>
 
             <div id="gct-inline-settings" class="gct-inline-settings" hidden>
+                <small class="gct-prompt-language-note">지시사항은 한국어와 English를 함께 인식하며, 결과는 원문 언어를 유지합니다.</small>
                 <label>기본 지시사항<textarea data-gct-setting="basePrompt" rows="4"></textarea></label>
                 <label>찰떡 지시사항<textarea data-gct-setting="polishPrompt" rows="4"></textarea></label>
                 <label>안돼 지시사항<textarea data-gct-setting="forbiddenPrompt" rows="4"></textarea></label>
@@ -876,7 +924,7 @@ async function initialize() {
     loadSettings();
     await createSettingsUI();
     createComposerUI();
-    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.6' });
+    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.7' });
     window.addEventListener('resize', applyWidgetPosition);
     window.addEventListener('scroll', applyWidgetPosition, true);
 }
