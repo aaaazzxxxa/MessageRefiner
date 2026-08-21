@@ -1,6 +1,9 @@
 const MODULE_NAME = 'gaetteok_chaltteok';
-const EXTENSION_FOLDER = 'third-party/SillyTavern-MessageRefiner';
-const ICON_PATH = `/scripts/extensions/${EXTENSION_FOLDER}/assets/gaetteok-chaltteok.png`;
+const EXTENSION_BASE_URL = new URL('.', import.meta.url);
+const EXTENSION_FOLDER = decodeURIComponent(EXTENSION_BASE_URL.pathname)
+    .replace(/^.*\/scripts\/extensions\//, '')
+    .replace(/\/$/, '');
+const ICON_PATH = new URL('assets/gaetteok-chaltteok.png', EXTENSION_BASE_URL).href;
 
 const DEFAULT_SETTINGS = Object.freeze({
     mode: 'polish',
@@ -470,6 +473,10 @@ async function createSettingsUI() {
     if (document.querySelector('#gct-settings')) return;
     const { renderExtensionTemplateAsync } = getContext();
     const html = await renderExtensionTemplateAsync(EXTENSION_FOLDER, 'settings', { iconPath: ICON_PATH });
+    if (!html) {
+        console.warn('[개떡찰떡] 설정 템플릿을 불러오지 못했습니다.', { extensionFolder: EXTENSION_FOLDER });
+        return;
+    }
     document.querySelector('#extensions_settings2')?.insertAdjacentHTML('beforeend', html);
 
     const root = document.querySelector('#gct-settings');

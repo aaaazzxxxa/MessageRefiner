@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8')
+    .replaceAll('import.meta.url', JSON.stringify('http://localhost/scripts/extensions/third-party/renamed-folder/index.js'));
 const context = vm.createContext({
     console,
+    URL,
     structuredClone,
     setTimeout,
     clearTimeout,
@@ -20,6 +22,15 @@ const context = vm.createContext({
 
 vm.runInContext(source, context);
 vm.runInContext('loadSettings()', context);
+
+assert.equal(
+    vm.runInContext('EXTENSION_FOLDER', context),
+    'third-party/renamed-folder',
+);
+assert.equal(
+    vm.runInContext('ICON_PATH', context),
+    'http://localhost/scripts/extensions/third-party/renamed-folder/assets/gaetteok-chaltteok.png',
+);
 
 const lightPrompt = vm.runInContext("buildPrompt('원문', 'light')", context);
 assert.match(lightPrompt, /\[기본 지시사항\]/);
