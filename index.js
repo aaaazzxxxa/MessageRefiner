@@ -490,11 +490,6 @@ function renderWandToggle() {
 }
 
 function createWandToggle(attempt = 0) {
-    if (document.querySelector('#gct-wand-toggle')) {
-        renderWandToggle();
-        return;
-    }
-
     const menu = document.querySelector('#extensionsMenu');
     if (!menu) {
         if (attempt < 20) {
@@ -505,6 +500,16 @@ function createWandToggle(attempt = 0) {
     }
 
     clearTimeout(wandMenuRetryTimer);
+    const existingToggle = document.querySelector('#gct-wand-toggle');
+    if (existingToggle) {
+        const existingContainer = existingToggle.closest('.extension_container');
+        if (existingContainer && menu.firstElementChild !== existingContainer) {
+            menu.prepend(existingContainer);
+        }
+        renderWandToggle();
+        return;
+    }
+
     const container = document.createElement('div');
     container.id = 'gct-wand-container';
     container.className = 'extension_container';
@@ -526,8 +531,15 @@ function createWandToggle(attempt = 0) {
     toggle.append(icon, label);
     toggle.addEventListener('click', () => setWidgetVisible(!settings.widgetVisible));
     container.append(toggle);
-    menu.append(container);
+    menu.prepend(container);
     renderWandToggle();
+}
+
+function bindWandMenuRefresh() {
+    const button = document.querySelector('#extensionsMenuButton');
+    if (!button || button.dataset.gctRefreshBound === 'true') return;
+    button.dataset.gctRefreshBound = 'true';
+    button.addEventListener('click', () => createWandToggle());
 }
 
 function setWidgetVisible(visible) {
@@ -980,7 +992,8 @@ async function initialize() {
     await createSettingsUI();
     createComposerUI();
     createWandToggle();
-    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.8' });
+    bindWandMenuRefresh();
+    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.9' });
     window.addEventListener('resize', applyWidgetPosition);
     window.addEventListener('scroll', applyWidgetPosition, true);
 }

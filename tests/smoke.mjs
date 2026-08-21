@@ -196,6 +196,9 @@ assert.match(source, /id="gct-launcher-drag"/);
 assert.match(source, /id="gct-widget-close"/);
 assert.match(source, /document\.querySelector\('#extensionsMenu'\)/);
 assert.match(source, /className = 'extension_container'/);
+assert.match(source, /menu\.prepend\(container\)/);
+assert.match(source, /#extensionsMenuButton/);
+assert.match(source, /button\.addEventListener\('click', \(\) => createWandToggle\(\)\)/);
 assert.match(source, /toggle\.addEventListener\('click', \(\) => setWidgetVisible\(!settings\.widgetVisible\)\)/);
 assert.match(stylesheet, /#gct-root \.gct-quick-menu button:last-child small\s*\{[^}]*color:\s*#fff\s*!important/s);
 

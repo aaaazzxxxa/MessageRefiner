@@ -6,7 +6,7 @@
 
 ![개떡찰떡 UI 목업](assets/preview.png)
 
-현재 버전: `0.1.0-beta.8`
+현재 버전: `0.1.0-beta.9`
 
 요구 버전: SillyTavern `1.18.0` 이상
 
