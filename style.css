@@ -37,7 +37,8 @@
 
 .gct-launcher,
 .gct-panel,
-.gct-undo-bar {
+.gct-undo-bar,
+.gct-quick-menu {
     pointer-events: auto;
     background: var(--gct-surface);
     border: 1px solid var(--gct-border);
@@ -133,7 +134,8 @@ img.gct-busy {
 
 .gct-panel[hidden],
 .gct-undo-bar[hidden],
-.gct-inline-settings[hidden] {
+.gct-inline-settings[hidden],
+.gct-quick-menu[hidden] {
     display: none !important;
 }
 
@@ -227,6 +229,24 @@ img.gct-busy {
     justify-content: space-between;
     align-items: center;
     margin: 10px 2px 5px;
+}
+
+.gct-editor-label label {
+    cursor: pointer;
+}
+
+.gct-editor-tools {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.gct-panel .gct-clear-button {
+    min-height: 28px;
+    padding: 2px 8px;
+    border: 1px solid var(--gct-border);
+    border-radius: 6px;
+    font-weight: 700;
 }
 
 .gct-editor,
@@ -331,6 +351,51 @@ img.gct-busy {
     background: transparent;
     font-weight: 800;
     cursor: pointer;
+}
+
+.gct-quick-menu {
+    position: absolute;
+    right: 0;
+    bottom: 43px;
+    z-index: 3;
+    width: min(290px, 100%);
+    padding: 6px;
+    display: grid;
+    gap: 5px;
+    border-radius: 6px;
+    box-shadow: 0 -8px 24px rgb(0 0 0 / 18%);
+}
+
+.gct-quick-menu button {
+    min-height: 48px;
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 1px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: inherit;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.gct-quick-menu button:hover,
+.gct-quick-menu button:focus-visible {
+    border-color: var(--gct-border);
+    background: var(--gct-accent-soft);
+    outline: none;
+}
+
+.gct-quick-menu button:last-child {
+    color: #fff;
+    background: var(--gct-accent-strong);
+}
+
+.gct-quick-menu small {
+    opacity: .72;
 }
 
 .gct-settings-title {
@@ -521,6 +586,11 @@ img.gct-busy {
 }
 
 #gct-root.gct-detached .gct-undo-bar {
+    right: 0;
+    bottom: 43px;
+}
+
+#gct-root.gct-detached .gct-quick-menu {
     right: 0;
     bottom: 43px;
 }

@@ -6,6 +6,11 @@ const EXTENSION_FOLDER = decodeURIComponent(EXTENSION_BASE_URL.pathname)
 const ICON_PATH = new URL('assets/gaetteok-chaltteok.png', EXTENSION_BASE_URL).href;
 const CONNECTION_SERVICE_PATH = new URL('../../shared.js', EXTENSION_BASE_URL).href;
 
+const SOURCE_HINTS = Object.freeze({
+    light: '맞춤법, 띄어쓰기, 조사, 어순 등을 가볍게 바로잡습니다.',
+    polish: '번역투와 어색한 표현, 문장 호흡과 리듬, 문체까지 더 자세히 다듬습니다.',
+});
+
 const DEFAULT_SETTINGS = Object.freeze({
     mode: 'polish',
     basePrompt: [
@@ -36,6 +41,7 @@ let isBusy = false;
 let lastUndo = null;
 let undoTimer = null;
 let debugEntries = [];
+let sourceHintVisible = true;
 
 function getContext() {
     return SillyTavern.getContext();
@@ -230,6 +236,7 @@ async function refineText(source, mode) {
 
 function setBusy(busy) {
     isBusy = busy;
+    if (busy) closeQuickMenu();
     document.querySelectorAll('[data-gct-run]').forEach((button) => {
         button.disabled = busy;
     });
@@ -242,7 +249,50 @@ function setBusy(busy) {
 }
 
 function getProcessLabel() {
-    return settings.mode === 'light' ? '살짝 교정하기' : '찰떡으로 다듬기';
+    return settings.mode === 'light' ? '살짝 교정하기' : '찰떡 교정하기';
+}
+
+function getSourceHint(mode = settings.mode) {
+    return SOURCE_HINTS[mode === 'light' ? 'light' : 'polish'];
+}
+
+function updateSourceHint(show = sourceHintVisible) {
+    const source = document.querySelector('#gct-source');
+    if (!source) return;
+    sourceHintVisible = Boolean(show);
+    source.placeholder = sourceHintVisible && !source.value ? getSourceHint() : '';
+}
+
+function setEditorSession(original, revised = '') {
+    const source = document.querySelector('#gct-source');
+    const result = document.querySelector('#gct-result');
+    if (source) source.value = original ?? '';
+    if (result) result.value = revised ?? '';
+    updateSourceHint(false);
+}
+
+function clearEditor() {
+    const source = document.querySelector('#gct-source');
+    const result = document.querySelector('#gct-result');
+    if (source) source.value = '';
+    if (result) result.value = '';
+    updateSourceHint(true);
+}
+
+function closeQuickMenu() {
+    const menu = document.querySelector('#gct-quick-menu');
+    const button = document.querySelector('.gct-rice-button');
+    if (menu) menu.hidden = true;
+    if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+function toggleQuickMenu() {
+    const menu = document.querySelector('#gct-quick-menu');
+    const button = document.querySelector('.gct-rice-button');
+    if (!menu || !button || isBusy) return;
+    const willOpen = menu.hidden;
+    menu.hidden = !willOpen;
+    button.setAttribute('aria-expanded', String(willOpen));
 }
 
 function rememberUndo(original, revised) {
@@ -261,16 +311,12 @@ function undoLast() {
         return;
     }
     setInputValue(lastUndo.original);
-    const source = document.querySelector('#gct-source');
-    const result = document.querySelector('#gct-result');
-    if (source) source.value = lastUndo.original;
-    if (result) result.value = lastUndo.revised;
     document.querySelector('#gct-undo-bar')?.setAttribute('hidden', '');
     lastUndo = null;
     toastr.success('원래 입력으로 되돌렸습니다.');
 }
 
-async function quickApply() {
+async function quickApply(mode = settings.mode) {
     if (isBusy) return;
     const input = getInput();
     const source = input?.value.trim();
@@ -282,10 +328,11 @@ async function quickApply() {
 
     setBusy(true);
     try {
-        const result = await refineText(source, settings.mode);
+        const original = input.value;
+        const result = await refineText(source, mode);
         rememberUndo(input.value, result);
+        setEditorSession(original, result);
         setInputValue(result);
-        syncEditorFromInput(false);
         toastr.success('입력창에 찰떡같이 적용했습니다.');
     } catch (error) {
         console.error('[개떡찰떡] 빠른 적용 실패:', error);
@@ -332,20 +379,19 @@ function applyPanelResult() {
     toastr.success('입력창에 적용했습니다.');
 }
 
-function syncEditorFromInput(clearResult = true) {
-    const source = document.querySelector('#gct-source');
-    const result = document.querySelector('#gct-result');
-    if (source && getInput()) source.value = getInput().value;
-    if (result && clearResult) result.value = '';
-}
-
 function openPanel() {
     const panel = document.querySelector('#gct-panel');
     if (!panel) return;
-    syncEditorFromInput(true);
+    const source = document.querySelector('#gct-source');
+    const result = document.querySelector('#gct-result');
+    if (source && result && !source.value && !result.value) {
+        const inputValue = getInput()?.value ?? '';
+        if (inputValue) setEditorSession(inputValue, '');
+        else updateSourceHint(true);
+    }
     panel.hidden = false;
     document.querySelector('#gct-launcher')?.classList.add('gct-open');
-    document.querySelector('#gct-source')?.focus();
+    if (source?.value) source.focus();
 }
 
 function closePanel() {
@@ -355,6 +401,7 @@ function closePanel() {
 }
 
 function togglePanel() {
+    closeQuickMenu();
     const panel = document.querySelector('#gct-panel');
     if (!panel || panel.hidden) openPanel();
     else closePanel();
@@ -370,7 +417,10 @@ function syncWidgetVisibility() {
 function setWidgetVisible(visible) {
     settings.widgetVisible = Boolean(visible);
     saveSettings();
-    if (!settings.widgetVisible) closePanel();
+    if (!settings.widgetVisible) {
+        closePanel();
+        closeQuickMenu();
+    }
     syncWidgetVisibility();
     if (settings.widgetVisible) requestAnimationFrame(applyWidgetPosition);
 }
@@ -453,6 +503,8 @@ function setMode(mode) {
     updatePromptPreview();
     const processButton = document.querySelector('#gct-process');
     if (processButton && !isBusy) processButton.textContent = getProcessLabel();
+    const source = document.querySelector('#gct-source');
+    updateSourceHint(!source?.value);
 }
 
 function syncModeButtons() {
@@ -539,6 +591,10 @@ function resetPromptSettings() {
     syncModeButtons();
     renderWordTags();
     updatePromptPreview();
+    const processButton = document.querySelector('#gct-process');
+    if (processButton && !isBusy) processButton.textContent = getProcessLabel();
+    const source = document.querySelector('#gct-source');
+    updateSourceHint(!source?.value);
     toastr.success('기본값으로 되돌렸습니다.');
 }
 
@@ -625,7 +681,7 @@ function createComposerUI() {
 
             <div class="gct-mode-row" role="group" aria-label="다듬기 모드">
                 <button type="button" data-gct-mode="light">살짝 교정</button>
-                <button type="button" data-gct-mode="polish">찰떡으로</button>
+                <button type="button" data-gct-mode="polish">찰떡 교정</button>
             </div>
 
             <div id="gct-inline-settings" class="gct-inline-settings" hidden>
@@ -647,8 +703,14 @@ function createComposerUI() {
                 </details>
             </div>
 
-            <label class="gct-editor-label" for="gct-source"><b>원문</b><small>직접 수정 가능</small></label>
-            <textarea id="gct-source" class="gct-editor" rows="5" placeholder="현재 입력창 내용을 가져옵니다."></textarea>
+            <div class="gct-editor-label">
+                <label for="gct-source"><b>원문</b></label>
+                <div class="gct-editor-tools">
+                    <small>직접 수정 가능</small>
+                    <button type="button" id="gct-clear" class="gct-clear-button">비우기</button>
+                </div>
+            </div>
+            <textarea id="gct-source" class="gct-editor" rows="5"></textarea>
             <button type="button" id="gct-process" class="gct-primary" data-gct-run>${getProcessLabel()}</button>
             <label class="gct-editor-label" for="gct-result"><b>결과</b><small>적용 전 편집 가능</small></label>
             <textarea id="gct-result" class="gct-editor gct-result" rows="5" placeholder="다듬은 결과가 여기에 표시됩니다."></textarea>
@@ -663,12 +725,23 @@ function createComposerUI() {
             <button type="button" id="gct-quick-undo">되돌리기</button>
         </div>
 
+        <div id="gct-quick-menu" class="gct-quick-menu" role="menu" hidden>
+            <button type="button" data-gct-quick-mode="light" data-gct-run role="menuitem">
+                <b>살짝 교정</b>
+                <small>맞춤법·조사·어순만 가볍게</small>
+            </button>
+            <button type="button" data-gct-quick-mode="polish" data-gct-run role="menuitem">
+                <b>찰떡 교정</b>
+                <small>문장 호흡·표현·문체까지</small>
+            </button>
+        </div>
+
         <div id="gct-launcher" class="gct-launcher">
             <button type="button" class="gct-launcher-label" id="gct-panel-toggle" aria-label="메시지 다듬기 탭 열기">
                 <i class="fa-solid fa-chevron-up"></i>
                 <span>메시지 다듬기</span>
             </button>
-            <button type="button" class="gct-rice-button" data-gct-run aria-label="현재 입력을 바로 다듬어 적용" title="현재 입력을 바로 다듬어 적용">
+            <button type="button" class="gct-rice-button" data-gct-run aria-label="빠른 교정 방식 선택" title="빠른 교정 방식 선택" aria-controls="gct-quick-menu" aria-expanded="false">
                 <img src="${ICON_PATH}" alt="">
             </button>
         </div>`;
@@ -681,23 +754,39 @@ function createComposerUI() {
     syncPromptFields();
     syncModeButtons();
     renderWordTags();
+    updateSourceHint(true);
     syncWidgetVisibility();
     requestAnimationFrame(applyWidgetPosition);
 
-    root.querySelector('.gct-rice-button').addEventListener('click', quickApply);
+    root.querySelector('.gct-rice-button').addEventListener('click', toggleQuickMenu);
+    root.querySelectorAll('[data-gct-quick-mode]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const mode = button.dataset.gctQuickMode;
+            closeQuickMenu();
+            setMode(mode);
+            quickApply(mode);
+        });
+    });
     root.querySelector('#gct-panel-toggle').addEventListener('click', togglePanel);
     root.querySelector('#gct-widget-close').addEventListener('click', () => setWidgetVisible(false));
     root.querySelector('#gct-dock').addEventListener('click', dockWidget);
     root.querySelector('#gct-drag-handle').addEventListener('pointerdown', startWidgetDrag);
     root.querySelector('#gct-reset-prompts').addEventListener('click', resetPromptSettings);
+    root.querySelector('#gct-clear').addEventListener('click', clearEditor);
     root.querySelector('#gct-process').addEventListener('click', processInPanel);
     root.querySelector('#gct-apply').addEventListener('click', applyPanelResult);
     root.querySelector('#gct-panel-undo').addEventListener('click', undoLast);
     root.querySelector('#gct-quick-undo').addEventListener('click', undoLast);
+    root.querySelector('#gct-source').addEventListener('focus', () => updateSourceHint(false));
+    root.querySelector('#gct-source').addEventListener('input', () => updateSourceHint(false));
     root.querySelector('#gct-settings-toggle').addEventListener('click', () => {
         const inlineSettings = root.querySelector('#gct-inline-settings');
         inlineSettings.hidden = !inlineSettings.hidden;
         updatePromptPreview();
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+        if (!event.target.closest('#gct-quick-menu, .gct-rice-button')) closeQuickMenu();
     });
 }
 
@@ -735,7 +824,7 @@ async function initialize() {
     loadSettings();
     await createSettingsUI();
     createComposerUI();
-    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.4' });
+    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.5' });
     window.addEventListener('resize', applyWidgetPosition);
 }
 
