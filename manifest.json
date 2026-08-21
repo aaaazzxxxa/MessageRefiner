@@ -1,0 +1,10 @@
+{
+  "display_name": "개떡찰떡 (Beta)",
+  "loading_order": 50,
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Yuni",
+  "version": "0.1.0-beta.1",
+  "auto_update": true,
+  "minimum_client_version": "1.18.0"
+}

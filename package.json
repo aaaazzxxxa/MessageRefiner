@@ -1,0 +1,9 @@
+{
+  "name": "sillytavern-message-refiner",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check index.js && node tests/smoke.mjs"
+  }
+}
