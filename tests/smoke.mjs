@@ -31,6 +31,12 @@ assert.equal(
     vm.runInContext('ICON_PATH', context),
     'http://localhost/scripts/extensions/third-party/renamed-folder/assets/gaetteok-chaltteok.png',
 );
+assert.equal(
+    vm.runInContext('CONNECTION_SERVICE_PATH', context),
+    'http://localhost/scripts/extensions/shared.js',
+);
+assert.equal(vm.runInContext('settings.widgetVisible', context), true);
+assert.equal(vm.runInContext('settings.connectionProfileId', context), '');
 
 const lightPrompt = vm.runInContext("buildPrompt('원문', 'light')", context);
 assert.match(lightPrompt, /\[기본 지시사항\]/);

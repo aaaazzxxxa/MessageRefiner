@@ -3,45 +3,31 @@
     <div class="inline-drawer-toggle inline-drawer-header">
       <div class="gct-settings-title">
         <img src="{{iconPath}}" alt="" class="gct-settings-icon">
-        <div>
-          <b>개떡찰떡</b>
-          <small>대필 없이, 쓴 문장만 찰떡같이</small>
-        </div>
+        <b>개떡찰떡</b>
       </div>
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="gct-settings-mode" role="group" aria-label="기본 다듬기 모드">
-        <button type="button" class="menu_button gct-mode-button" data-gct-mode="light">살짝 교정</button>
-        <button type="button" class="menu_button gct-mode-button" data-gct-mode="polish">찰떡으로</button>
+      <label class="checkbox_label gct-visible-toggle" for="gct-widget-visible">
+        <input id="gct-widget-visible" type="checkbox">
+        <span>입력창 도구 표시</span>
+      </label>
+
+      <label for="gct-connection-profile"><b>연결 프로필</b></label>
+      <select id="gct-connection-profile" class="text_pole">
+        <option value="">현재 SillyTavern 연결 사용</option>
+      </select>
+      <small class="gct-settings-note">선택한 프로필로 후처리 요청만 따로 보냅니다. 비워두면 현재 연결 설정을 그대로 사용합니다.</small>
+
+      <div class="gct-debug-header">
+        <b>디버그 로그</b>
+        <div class="gct-debug-actions">
+          <button type="button" class="menu_button" id="gct-copy-debug">복사</button>
+          <button type="button" class="menu_button" id="gct-clear-debug">비우기</button>
+        </div>
       </div>
-
-      <label for="gct-settings-base"><b>기본 지시사항</b></label>
-      <textarea id="gct-settings-base" class="text_pole textarea_compact gct-prompt-input" data-gct-setting="basePrompt" rows="6"></textarea>
-
-      <label for="gct-settings-polish"><b>찰떡 지시사항</b></label>
-      <textarea id="gct-settings-polish" class="text_pole textarea_compact gct-prompt-input" data-gct-setting="polishPrompt" rows="5"></textarea>
-
-      <label for="gct-settings-forbidden"><b>안돼 지시사항</b></label>
-      <textarea id="gct-settings-forbidden" class="text_pole textarea_compact gct-prompt-input" data-gct-setting="forbiddenPrompt" rows="6"></textarea>
-
-      <div class="gct-word-editor" data-gct-word-editor="settings">
-        <b>금지단어:</b>
-        <div class="gct-word-tags" data-gct-word-tags></div>
-        <input type="text" class="text_pole gct-word-input" data-gct-word-input placeholder="단어 추가" autocomplete="off">
-        <button type="button" class="menu_button gct-add-word" data-gct-add-word>추가</button>
-      </div>
-
-      <div class="gct-settings-actions">
-        <button type="button" class="menu_button" id="gct-reset-settings">기본값 복원</button>
-      </div>
-
-      <details class="gct-preview-details">
-        <summary>실제 전송 프롬프트 미리보기</summary>
-        <pre id="gct-prompt-preview"></pre>
-      </details>
-
-      <small class="gct-settings-note">현재 SillyTavern 연결 프로필을 사용합니다. 채팅 기록은 보내지 않고 현재 입력 원문만 처리합니다.</small>
+      <textarea id="gct-debug-log" class="text_pole" rows="10" readonly placeholder="이번 세션의 요청과 오류가 여기에 기록됩니다."></textarea>
+      <small class="gct-settings-note">원문·프롬프트·결과가 포함될 수 있으며 현재 브라우저 세션에만 보관됩니다.</small>
     </div>
   </div>
 </div>

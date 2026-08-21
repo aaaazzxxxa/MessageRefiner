@@ -4,6 +4,7 @@ const EXTENSION_FOLDER = decodeURIComponent(EXTENSION_BASE_URL.pathname)
     .replace(/^.*\/scripts\/extensions\//, '')
     .replace(/\/$/, '');
 const ICON_PATH = new URL('assets/gaetteok-chaltteok.png', EXTENSION_BASE_URL).href;
+const CONNECTION_SERVICE_PATH = new URL('../../shared.js', EXTENSION_BASE_URL).href;
 
 const DEFAULT_SETTINGS = Object.freeze({
     mode: 'polish',
@@ -25,12 +26,16 @@ const DEFAULT_SETTINGS = Object.freeze({
         '금지단어가 지정되면 결과에 사용하지 말고 문맥에 맞는 다른 표현으로 대체하세요.',
     ].join('\n'),
     forbiddenWords: [],
+    connectionProfileId: '',
+    widgetVisible: true,
+    widgetPosition: null,
 });
 
 let settings;
 let isBusy = false;
 let lastUndo = null;
 let undoTimer = null;
+let debugEntries = [];
 
 function getContext() {
     return SillyTavern.getContext();
@@ -57,6 +62,9 @@ function loadSettings() {
     settings = extensionSettings[MODULE_NAME];
     settings.mode = settings.mode === 'light' ? 'light' : 'polish';
     settings.forbiddenWords = normalizeWords(settings.forbiddenWords);
+    settings.connectionProfileId = typeof settings.connectionProfileId === 'string' ? settings.connectionProfileId : '';
+    settings.widgetVisible = settings.widgetVisible !== false;
+    settings.widgetPosition = normalizeWidgetPosition(settings.widgetPosition);
     return settings;
 }
 
@@ -67,6 +75,65 @@ function saveSettings() {
 function normalizeWords(words) {
     if (!Array.isArray(words)) return [];
     return [...new Set(words.map((word) => String(word).trim()).filter(Boolean))];
+}
+
+function normalizeWidgetPosition(position) {
+    if (!position || !Number.isFinite(position.left) || !Number.isFinite(position.top)) return null;
+    return { left: Math.max(6, position.left), top: Math.max(6, position.top) };
+}
+
+function appendDebug(label, data = '') {
+    const timestamp = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+    const detail = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    debugEntries.push(`[${timestamp}] ${label}${detail ? `\n${detail}` : ''}`);
+    if (debugEntries.length > 80) debugEntries = debugEntries.slice(-80);
+    renderDebugLog();
+}
+
+function renderDebugLog() {
+    const field = document.querySelector('#gct-debug-log');
+    if (!field) return;
+    field.value = debugEntries.join('\n\n');
+    field.scrollTop = field.scrollHeight;
+}
+
+function clearDebugLog() {
+    debugEntries = [];
+    renderDebugLog();
+}
+
+async function copyDebugLog() {
+    const text = debugEntries.join('\n\n');
+    if (!text) {
+        toastr.info('복사할 디버그 로그가 없습니다.');
+        return;
+    }
+    await navigator.clipboard.writeText(text);
+    toastr.success('디버그 로그를 복사했습니다.');
+}
+
+function getConnectionProfiles() {
+    const manager = getContext().extensionSettings.connectionManager;
+    return Array.isArray(manager?.profiles) ? manager.profiles : [];
+}
+
+function getSelectedProfile() {
+    if (!settings.connectionProfileId) return null;
+    return getConnectionProfiles().find((profile) => profile.id === settings.connectionProfileId) ?? null;
+}
+
+function renderConnectionProfiles() {
+    const select = document.querySelector('#gct-connection-profile');
+    if (!select) return;
+    const profiles = [...getConnectionProfiles()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    select.replaceChildren(new Option('현재 SillyTavern 연결 사용', ''));
+    profiles.forEach((profile) => select.add(new Option(profile.name, profile.id)));
+
+    if (settings.connectionProfileId && !profiles.some((profile) => profile.id === settings.connectionProfileId)) {
+        settings.connectionProfileId = '';
+        saveSettings();
+    }
+    select.value = settings.connectionProfileId;
 }
 
 function getInput() {
@@ -123,11 +190,42 @@ function cleanOutput(raw) {
 }
 
 async function refineText(source, mode) {
-    const generateRaw = await getGenerateRaw();
-    const raw = await generateRaw({ prompt: buildPrompt(source, mode) });
-    const result = cleanOutput(raw);
-    if (!result) throw new Error('모델이 빈 결과를 반환했습니다.');
-    return result;
+    const prompt = buildPrompt(source, mode);
+    const profile = getSelectedProfile();
+    appendDebug('요청 시작', {
+        mode,
+        connection: profile ? profile.name : '현재 SillyTavern 연결',
+        prompt,
+    });
+
+    try {
+        let raw;
+        if (profile) {
+            const { ConnectionManagerRequestService } = await import(CONNECTION_SERVICE_PATH);
+            const response = await ConnectionManagerRequestService.sendRequest(
+                profile.id,
+                prompt,
+                2048,
+                { stream: false, extractData: true, includePreset: true, includeInstruct: true },
+            );
+            raw = response?.content ?? '';
+        } else {
+            const generateRaw = await getGenerateRaw();
+            raw = await generateRaw({ prompt });
+        }
+
+        appendDebug('응답', raw);
+        const result = cleanOutput(raw);
+        if (!result) throw new Error('모델이 빈 결과를 반환했습니다.');
+        return result;
+    } catch (error) {
+        appendDebug('오류', {
+            message: error?.message || String(error),
+            cause: error?.cause?.message || null,
+            stack: error?.stack || null,
+        });
+        throw error;
+    }
 }
 
 function setBusy(busy) {
@@ -262,6 +360,92 @@ function togglePanel() {
     else closePanel();
 }
 
+function syncWidgetVisibility() {
+    const root = document.querySelector('#gct-root');
+    const toggle = document.querySelector('#gct-widget-visible');
+    if (root) root.hidden = !settings.widgetVisible;
+    if (toggle) toggle.checked = settings.widgetVisible;
+}
+
+function setWidgetVisible(visible) {
+    settings.widgetVisible = Boolean(visible);
+    saveSettings();
+    if (!settings.widgetVisible) closePanel();
+    syncWidgetVisibility();
+    if (settings.widgetVisible) requestAnimationFrame(applyWidgetPosition);
+}
+
+function applyWidgetPosition() {
+    const root = document.querySelector('#gct-root');
+    if (!root) return;
+    const position = normalizeWidgetPosition(settings.widgetPosition);
+    root.classList.toggle('gct-detached', Boolean(position));
+    if (!position) {
+        root.style.removeProperty('left');
+        root.style.removeProperty('top');
+        return;
+    }
+
+    const maxLeft = Math.max(6, window.innerWidth - root.offsetWidth - 6);
+    const maxTop = Math.max(6, window.innerHeight - root.offsetHeight - 6);
+    root.style.left = `${Math.min(position.left, maxLeft)}px`;
+    root.style.top = `${Math.min(position.top, maxTop)}px`;
+}
+
+function dockWidget() {
+    settings.widgetPosition = null;
+    saveSettings();
+    applyWidgetPosition();
+    toastr.success('입력창 위로 돌려놓았습니다.');
+}
+
+function startWidgetDrag(event) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const root = document.querySelector('#gct-root');
+    const panel = document.querySelector('#gct-panel');
+    const handle = event.currentTarget;
+    if (!root || !panel || panel.hidden) return;
+
+    event.preventDefault();
+    const panelRect = panel.getBoundingClientRect();
+    if (!root.classList.contains('gct-detached')) {
+        root.classList.add('gct-detached');
+        root.style.left = `${panelRect.left}px`;
+        root.style.top = `${panelRect.top}px`;
+    }
+
+    const rootRect = root.getBoundingClientRect();
+    const offsetX = event.clientX - rootRect.left;
+    const offsetY = event.clientY - rootRect.top;
+    handle.setPointerCapture(event.pointerId);
+    root.classList.add('gct-dragging');
+
+    const move = (moveEvent) => {
+        const maxLeft = Math.max(6, window.innerWidth - root.offsetWidth - 6);
+        const maxTop = Math.max(6, window.innerHeight - root.offsetHeight - 6);
+        const left = Math.min(Math.max(6, moveEvent.clientX - offsetX), maxLeft);
+        const top = Math.min(Math.max(6, moveEvent.clientY - offsetY), maxTop);
+        root.style.left = `${left}px`;
+        root.style.top = `${top}px`;
+    };
+
+    const finish = () => {
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', finish);
+        handle.removeEventListener('pointercancel', finish);
+        root.classList.remove('gct-dragging');
+        settings.widgetPosition = {
+            left: Number.parseFloat(root.style.left) || 6,
+            top: Number.parseFloat(root.style.top) || 6,
+        };
+        saveSettings();
+    };
+
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', finish);
+}
+
 function setMode(mode) {
     settings.mode = mode === 'light' ? 'light' : 'polish';
     saveSettings();
@@ -300,7 +484,7 @@ function renderWordTags() {
 
 function addForbiddenWord(input) {
     const value = input.value.trim().replace(/,+$/, '').trim();
-    if (!value) return;
+    if (!value) return false;
     if (!settings.forbiddenWords.includes(value)) {
         settings.forbiddenWords.push(value);
         settings.forbiddenWords = normalizeWords(settings.forbiddenWords);
@@ -309,6 +493,20 @@ function addForbiddenWord(input) {
     input.value = '';
     renderWordTags();
     updatePromptPreview();
+    return true;
+}
+
+function setWordEditorActive(editor, active) {
+    const input = editor.querySelector('[data-gct-word-input]');
+    const button = editor.querySelector('[data-gct-add-word]');
+    editor.classList.toggle('gct-adding', active);
+    button.textContent = active ? '확인' : '+ 단어 추가';
+    button.setAttribute('aria-expanded', String(active));
+    if (active) {
+        input.focus();
+    } else {
+        input.value = '';
+    }
 }
 
 function removeForbiddenWord(word) {
@@ -329,9 +527,13 @@ function updatePromptPreview() {
     if (preview) preview.textContent = buildPrompt('', settings.mode, true);
 }
 
-function resetSettings() {
+function resetPromptSettings() {
     if (!confirm('개떡찰떡 지시사항과 금지단어를 기본값으로 되돌릴까요?')) return;
-    Object.assign(settings, cloneDefaults());
+    settings.mode = DEFAULT_SETTINGS.mode;
+    settings.basePrompt = DEFAULT_SETTINGS.basePrompt;
+    settings.polishPrompt = DEFAULT_SETTINGS.polishPrompt;
+    settings.forbiddenPrompt = DEFAULT_SETTINGS.forbiddenPrompt;
+    settings.forbiddenWords = [];
     saveSettings();
     syncPromptFields();
     syncModeButtons();
@@ -359,7 +561,13 @@ function bindSharedControls(root = document) {
     root.querySelectorAll('[data-gct-add-word]').forEach((button) => {
         button.addEventListener('click', () => {
             const editor = button.closest('[data-gct-word-editor]');
-            addForbiddenWord(editor.querySelector('[data-gct-word-input]'));
+            const input = editor.querySelector('[data-gct-word-input]');
+            if (!editor.classList.contains('gct-adding')) {
+                setWordEditorActive(editor, true);
+                return;
+            }
+            if (addForbiddenWord(input)) setWordEditorActive(editor, false);
+            else input.focus();
         });
     });
 
@@ -367,7 +575,12 @@ function bindSharedControls(root = document) {
         input.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === ',') {
                 event.preventDefault();
-                addForbiddenWord(input);
+                if (addForbiddenWord(input)) {
+                    setWordEditorActive(input.closest('[data-gct-word-editor]'), false);
+                }
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                setWordEditorActive(input.closest('[data-gct-word-editor]'), false);
             }
         });
     });
@@ -396,10 +609,16 @@ function createComposerUI() {
                     <b>개떡찰떡</b>
                     <small>대필 없이, 쓴 문장만 찰떡같이</small>
                 </div>
+                <div class="gct-drag-handle" id="gct-drag-handle" role="button" tabindex="0" aria-label="탭 이동" title="끌어서 탭 이동">
+                    <i class="fa-solid fa-grip"></i>
+                </div>
+                <button type="button" class="gct-icon-button gct-dock-button" id="gct-dock" aria-label="입력창 위로 돌려놓기" title="입력창 위로 돌려놓기">
+                    <i class="fa-solid fa-thumbtack"></i>
+                </button>
                 <button type="button" class="gct-icon-button" id="gct-settings-toggle" aria-label="지시사항 설정" title="지시사항 설정">
                     <i class="fa-solid fa-gear"></i>
                 </button>
-                <button type="button" class="gct-icon-button" id="gct-panel-close" aria-label="닫기" title="닫기">
+                <button type="button" class="gct-icon-button" id="gct-widget-close" aria-label="개떡찰떡 숨기기" title="완전히 닫기">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </header>
@@ -416,9 +635,16 @@ function createComposerUI() {
                 <div class="gct-word-editor" data-gct-word-editor="panel">
                     <b>금지단어:</b>
                     <div class="gct-word-tags" data-gct-word-tags></div>
-                    <input type="text" data-gct-word-input placeholder="단어 추가" autocomplete="off">
-                    <button type="button" data-gct-add-word>추가</button>
+                    <input type="text" class="gct-word-input" data-gct-word-input placeholder="단어" autocomplete="off">
+                    <button type="button" class="gct-add-word" data-gct-add-word>+ 단어 추가</button>
                 </div>
+                <div class="gct-inline-settings-actions">
+                    <button type="button" id="gct-reset-prompts">기본값 복원</button>
+                </div>
+                <details class="gct-preview-details">
+                    <summary>실제 전송 프롬프트 미리보기</summary>
+                    <pre id="gct-prompt-preview"></pre>
+                </details>
             </div>
 
             <label class="gct-editor-label" for="gct-source"><b>원문</b><small>직접 수정 가능</small></label>
@@ -455,10 +681,15 @@ function createComposerUI() {
     syncPromptFields();
     syncModeButtons();
     renderWordTags();
+    syncWidgetVisibility();
+    requestAnimationFrame(applyWidgetPosition);
 
     root.querySelector('.gct-rice-button').addEventListener('click', quickApply);
     root.querySelector('#gct-panel-toggle').addEventListener('click', togglePanel);
-    root.querySelector('#gct-panel-close').addEventListener('click', closePanel);
+    root.querySelector('#gct-widget-close').addEventListener('click', () => setWidgetVisible(false));
+    root.querySelector('#gct-dock').addEventListener('click', dockWidget);
+    root.querySelector('#gct-drag-handle').addEventListener('pointerdown', startWidgetDrag);
+    root.querySelector('#gct-reset-prompts').addEventListener('click', resetPromptSettings);
     root.querySelector('#gct-process').addEventListener('click', processInPanel);
     root.querySelector('#gct-apply').addEventListener('click', applyPanelResult);
     root.querySelector('#gct-panel-undo').addEventListener('click', undoLast);
@@ -466,6 +697,7 @@ function createComposerUI() {
     root.querySelector('#gct-settings-toggle').addEventListener('click', () => {
         const inlineSettings = root.querySelector('#gct-inline-settings');
         inlineSettings.hidden = !inlineSettings.hidden;
+        updatePromptPreview();
     });
 }
 
@@ -481,19 +713,37 @@ async function createSettingsUI() {
 
     const root = document.querySelector('#gct-settings');
     if (!root) return;
-    bindSharedControls(root);
-    root.querySelector('#gct-reset-settings')?.addEventListener('click', resetSettings);
-    syncPromptFields();
-    syncModeButtons();
-    renderWordTags();
-    updatePromptPreview();
+    root.querySelector('#gct-widget-visible').addEventListener('change', (event) => {
+        setWidgetVisible(event.target.checked);
+    });
+    root.querySelector('#gct-connection-profile').addEventListener('change', (event) => {
+        settings.connectionProfileId = event.target.value;
+        saveSettings();
+        const profile = getSelectedProfile();
+        appendDebug('연결 프로필 변경', profile?.name || '현재 SillyTavern 연결');
+    });
+    root.querySelector('#gct-copy-debug').addEventListener('click', () => {
+        copyDebugLog().catch((error) => toastr.error(error?.message || '로그를 복사하지 못했습니다.'));
+    });
+    root.querySelector('#gct-clear-debug').addEventListener('click', clearDebugLog);
+    syncWidgetVisibility();
+    renderConnectionProfiles();
+    renderDebugLog();
 }
 
 async function initialize() {
     loadSettings();
     await createSettingsUI();
     createComposerUI();
+    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.4' });
+    window.addEventListener('resize', applyWidgetPosition);
 }
 
 const { eventSource, event_types } = getContext();
 eventSource.on(event_types.APP_READY, initialize);
+[
+    event_types.CONNECTION_PROFILE_CREATED,
+    event_types.CONNECTION_PROFILE_UPDATED,
+    event_types.CONNECTION_PROFILE_DELETED,
+    event_types.CONNECTION_PROFILE_LOADED,
+].filter(Boolean).forEach((eventType) => eventSource.on(eventType, renderConnectionProfiles));
