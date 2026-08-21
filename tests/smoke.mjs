@@ -4,6 +4,7 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8')
     .replaceAll('import.meta.url', JSON.stringify('http://localhost/scripts/extensions/third-party/renamed-folder/index.js'));
+const stylesheet = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 const context = vm.createContext({
     console,
     URL,
@@ -160,6 +161,32 @@ assert.equal(vm.runInContext('__gctRootStyle.width', context), '360px');
 assert.equal(vm.runInContext('__gctRootStyle.left', context), '15px');
 assert.equal(vm.runInContext('__gctRootStyle.top', context), '658px');
 
+vm.runInContext(`
+    globalThis.__gctWandLabel = { textContent: '' };
+    globalThis.__gctWandState = { off: false, checked: '' };
+    globalThis.__gctFields['#gct-wand-toggle'] = {
+        querySelector: () => globalThis.__gctWandLabel,
+        classList: {
+            toggle: (_name, active) => globalThis.__gctWandState.off = active,
+        },
+        setAttribute: (_name, value) => globalThis.__gctWandState.checked = value,
+        title: '',
+    };
+    settings.widgetVisible = true;
+    renderWandToggle();
+`, context);
+assert.equal(vm.runInContext('__gctWandLabel.textContent', context), '개떡찰떡 탭: 켜짐');
+assert.equal(vm.runInContext('__gctWandState.off', context), false);
+assert.equal(vm.runInContext('__gctWandState.checked', context), 'true');
+
+vm.runInContext(`
+    settings.widgetVisible = false;
+    renderWandToggle();
+`, context);
+assert.equal(vm.runInContext('__gctWandLabel.textContent', context), '개떡찰떡 탭: 꺼짐');
+assert.equal(vm.runInContext('__gctWandState.off', context), true);
+assert.equal(vm.runInContext('__gctWandState.checked', context), 'false');
+
 assert.match(source, /data-gct-quick-mode="light"/);
 assert.match(source, /data-gct-quick-mode="polish"/);
 assert.doesNotMatch(source, /syncEditorFromInput/);
@@ -167,5 +194,9 @@ assert.match(source, /document\.body\.append\(root\)/);
 assert.doesNotMatch(source, /sendForm\.append\(root\)/);
 assert.match(source, /id="gct-launcher-drag"/);
 assert.match(source, /id="gct-widget-close"/);
+assert.match(source, /document\.querySelector\('#extensionsMenu'\)/);
+assert.match(source, /className = 'extension_container'/);
+assert.match(source, /toggle\.addEventListener\('click', \(\) => setWidgetVisible\(!settings\.widgetVisible\)\)/);
+assert.match(stylesheet, /#gct-root \.gct-quick-menu button:last-child small\s*\{[^}]*color:\s*#fff\s*!important/s);
 
 console.log('개떡찰떡 smoke tests passed');

@@ -70,6 +70,7 @@ let undoTimer = null;
 let debugEntries = [];
 let sourceHintVisible = true;
 let widgetResizeObserver = null;
+let wandMenuRetryTimer = null;
 
 function getContext() {
     return SillyTavern.getContext();
@@ -473,6 +474,60 @@ function syncWidgetVisibility() {
     const toggle = document.querySelector('#gct-widget-visible');
     if (root) root.hidden = !settings.widgetVisible;
     if (toggle) toggle.checked = settings.widgetVisible;
+    renderWandToggle();
+}
+
+function renderWandToggle() {
+    const toggle = document.querySelector('#gct-wand-toggle');
+    const label = toggle?.querySelector('.gct-wand-label');
+    if (!toggle || !label) return;
+
+    const status = settings.widgetVisible ? '켜짐' : '꺼짐';
+    label.textContent = `개떡찰떡 탭: ${status}`;
+    toggle.classList.toggle('gct-wand-off', !settings.widgetVisible);
+    toggle.setAttribute('aria-checked', String(settings.widgetVisible));
+    toggle.title = settings.widgetVisible ? '개떡찰떡 탭 숨기기' : '개떡찰떡 탭 표시';
+}
+
+function createWandToggle(attempt = 0) {
+    if (document.querySelector('#gct-wand-toggle')) {
+        renderWandToggle();
+        return;
+    }
+
+    const menu = document.querySelector('#extensionsMenu');
+    if (!menu) {
+        if (attempt < 20) {
+            clearTimeout(wandMenuRetryTimer);
+            wandMenuRetryTimer = setTimeout(() => createWandToggle(attempt + 1), 250);
+        }
+        return;
+    }
+
+    clearTimeout(wandMenuRetryTimer);
+    const container = document.createElement('div');
+    container.id = 'gct-wand-container';
+    container.className = 'extension_container';
+
+    const toggle = document.createElement('div');
+    toggle.id = 'gct-wand-toggle';
+    toggle.className = 'list-group-item flex-container flexGap5 gct-wand-toggle';
+    toggle.setAttribute('role', 'switch');
+
+    const icon = document.createElement('div');
+    icon.className = 'extensionsMenuExtensionButton gct-wand-icon';
+    const image = document.createElement('img');
+    image.src = ICON_PATH;
+    image.alt = '';
+    icon.append(image);
+
+    const label = document.createElement('span');
+    label.className = 'gct-wand-label';
+    toggle.append(icon, label);
+    toggle.addEventListener('click', () => setWidgetVisible(!settings.widgetVisible));
+    container.append(toggle);
+    menu.append(container);
+    renderWandToggle();
 }
 
 function setWidgetVisible(visible) {
@@ -924,7 +979,8 @@ async function initialize() {
     loadSettings();
     await createSettingsUI();
     createComposerUI();
-    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.7' });
+    createWandToggle();
+    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.8' });
     window.addEventListener('resize', applyWidgetPosition);
     window.addEventListener('scroll', applyWidgetPosition, true);
 }
