@@ -98,8 +98,35 @@ assert.equal(vm.runInContext("__gctFields['#send_textarea'].value", context), '�
 assert.equal(vm.runInContext("__gctFields['#gct-source'].value", context), '빠른 교정 전 원문');
 assert.equal(vm.runInContext("__gctFields['#gct-result'].value", context), '빠른 교정 결과');
 
+vm.runInContext(`
+    const testClasses = new Set();
+    globalThis.__gctRootStyle = { removeProperty(name) { delete this[name]; } };
+    globalThis.__gctFields['#gct-root'] = {
+        offsetWidth: 360,
+        style: globalThis.__gctRootStyle,
+        classList: {
+            toggle: (name, active) => active ? testClasses.add(name) : testClasses.delete(name),
+            remove: (name) => testClasses.delete(name),
+        },
+    };
+    globalThis.__gctFields['#gct-launcher'] = { offsetHeight: 38 };
+    globalThis.__gctFields['#send_form'] = {
+        getBoundingClientRect: () => ({ left: 15, top: 700, width: 360 }),
+    };
+    globalThis.window = { innerWidth: 390, innerHeight: 844 };
+    settings.widgetPosition = null;
+    applyWidgetPosition();
+`, context);
+assert.equal(vm.runInContext('__gctRootStyle.width', context), '360px');
+assert.equal(vm.runInContext('__gctRootStyle.left', context), '15px');
+assert.equal(vm.runInContext('__gctRootStyle.top', context), '658px');
+
 assert.match(source, /data-gct-quick-mode="light"/);
 assert.match(source, /data-gct-quick-mode="polish"/);
 assert.doesNotMatch(source, /syncEditorFromInput/);
+assert.match(source, /document\.body\.append\(root\)/);
+assert.doesNotMatch(source, /sendForm\.append\(root\)/);
+assert.match(source, /id="gct-launcher-drag"/);
+assert.match(source, /id="gct-widget-close"/);
 
 console.log('개떡찰떡 smoke tests passed');

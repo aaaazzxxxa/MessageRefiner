@@ -4,7 +4,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "Yuni",
-  "version": "0.1.0-beta.5",
+  "version": "0.1.0-beta.6",
   "auto_update": true,
   "minimum_client_version": "1.18.0"
 }

@@ -42,6 +42,7 @@ let lastUndo = null;
 let undoTimer = null;
 let debugEntries = [];
 let sourceHintVisible = true;
+let widgetResizeObserver = null;
 
 function getContext() {
     return SillyTavern.getContext();
@@ -284,6 +285,7 @@ function closeQuickMenu() {
     const button = document.querySelector('.gct-rice-button');
     if (menu) menu.hidden = true;
     if (button) button.setAttribute('aria-expanded', 'false');
+    document.querySelector('#gct-root')?.classList.remove('gct-menu-below');
 }
 
 function toggleQuickMenu() {
@@ -293,6 +295,17 @@ function toggleQuickMenu() {
     const willOpen = menu.hidden;
     menu.hidden = !willOpen;
     button.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen) {
+        const launcherRect = document.querySelector('#gct-launcher')?.getBoundingClientRect();
+        if (launcherRect) {
+            const spaceAbove = launcherRect.top - 6;
+            const spaceBelow = window.innerHeight - launcherRect.bottom - 6;
+            document.querySelector('#gct-root')?.classList.toggle(
+                'gct-menu-below',
+                menu.offsetHeight > spaceAbove && spaceBelow > spaceAbove,
+            );
+        }
+    }
 }
 
 function rememberUndo(original, revised) {
@@ -391,6 +404,7 @@ function openPanel() {
     }
     panel.hidden = false;
     document.querySelector('#gct-launcher')?.classList.add('gct-open');
+    requestAnimationFrame(syncPanelPlacement);
     if (source?.value) source.focus();
 }
 
@@ -398,6 +412,7 @@ function closePanel() {
     const panel = document.querySelector('#gct-panel');
     if (panel) panel.hidden = true;
     document.querySelector('#gct-launcher')?.classList.remove('gct-open');
+    document.querySelector('#gct-root')?.classList.remove('gct-panel-below');
 }
 
 function togglePanel() {
@@ -427,19 +442,45 @@ function setWidgetVisible(visible) {
 
 function applyWidgetPosition() {
     const root = document.querySelector('#gct-root');
-    if (!root) return;
+    const sendForm = document.querySelector('#send_form');
+    const launcher = document.querySelector('#gct-launcher');
+    if (!root || !launcher) return;
+
     const position = normalizeWidgetPosition(settings.widgetPosition);
     root.classList.toggle('gct-detached', Boolean(position));
-    if (!position) {
-        root.style.removeProperty('left');
-        root.style.removeProperty('top');
+    if (position) {
+        root.style.removeProperty('width');
+        const maxLeft = Math.max(6, window.innerWidth - root.offsetWidth - 6);
+        const maxTop = Math.max(6, window.innerHeight - launcher.offsetHeight - 6);
+        root.style.left = `${Math.min(position.left, maxLeft)}px`;
+        root.style.top = `${Math.min(position.top, maxTop)}px`;
+    } else if (sendForm) {
+        const formRect = sendForm.getBoundingClientRect();
+        const width = Math.min(formRect.width, window.innerWidth - 12);
+        const left = Math.min(Math.max(6, formRect.left), Math.max(6, window.innerWidth - width - 6));
+        const top = Math.max(6, formRect.top - launcher.offsetHeight - 4);
+        root.style.width = `${width}px`;
+        root.style.left = `${left}px`;
+        root.style.top = `${top}px`;
+    }
+
+    syncPanelPlacement();
+}
+
+function syncPanelPlacement() {
+    const root = document.querySelector('#gct-root');
+    const panel = document.querySelector('#gct-panel');
+    const launcher = document.querySelector('#gct-launcher');
+    if (!root || !panel || !launcher || panel.hidden) {
+        root?.classList.remove('gct-panel-below');
         return;
     }
 
-    const maxLeft = Math.max(6, window.innerWidth - root.offsetWidth - 6);
-    const maxTop = Math.max(6, window.innerHeight - root.offsetHeight - 6);
-    root.style.left = `${Math.min(position.left, maxLeft)}px`;
-    root.style.top = `${Math.min(position.top, maxTop)}px`;
+    const launcherRect = launcher.getBoundingClientRect();
+    const panelHeight = panel.offsetHeight;
+    const spaceAbove = launcherRect.top - 6;
+    const spaceBelow = window.innerHeight - launcherRect.bottom - 6;
+    root.classList.toggle('gct-panel-below', panelHeight > spaceAbove && spaceBelow > spaceAbove);
 }
 
 function dockWidget() {
@@ -452,16 +493,19 @@ function dockWidget() {
 function startWidgetDrag(event) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const root = document.querySelector('#gct-root');
-    const panel = document.querySelector('#gct-panel');
+    const launcher = document.querySelector('#gct-launcher');
     const handle = event.currentTarget;
-    if (!root || !panel || panel.hidden) return;
+    if (!root || !launcher) return;
 
     event.preventDefault();
-    const panelRect = panel.getBoundingClientRect();
+    closeQuickMenu();
+    const anchoredRect = root.getBoundingClientRect();
     if (!root.classList.contains('gct-detached')) {
         root.classList.add('gct-detached');
-        root.style.left = `${panelRect.left}px`;
-        root.style.top = `${panelRect.top}px`;
+        root.style.removeProperty('width');
+        const maxLeft = Math.max(6, window.innerWidth - root.offsetWidth - 6);
+        root.style.left = `${Math.min(Math.max(6, anchoredRect.left), maxLeft)}px`;
+        root.style.top = `${Math.max(6, anchoredRect.top)}px`;
     }
 
     const rootRect = root.getBoundingClientRect();
@@ -472,11 +516,12 @@ function startWidgetDrag(event) {
 
     const move = (moveEvent) => {
         const maxLeft = Math.max(6, window.innerWidth - root.offsetWidth - 6);
-        const maxTop = Math.max(6, window.innerHeight - root.offsetHeight - 6);
+        const maxTop = Math.max(6, window.innerHeight - launcher.offsetHeight - 6);
         const left = Math.min(Math.max(6, moveEvent.clientX - offsetX), maxLeft);
         const top = Math.min(Math.max(6, moveEvent.clientY - offsetY), maxTop);
         root.style.left = `${left}px`;
         root.style.top = `${top}px`;
+        syncPanelPlacement();
     };
 
     const finish = () => {
@@ -489,6 +534,7 @@ function startWidgetDrag(event) {
             top: Number.parseFloat(root.style.top) || 6,
         };
         saveSettings();
+        syncPanelPlacement();
     };
 
     handle.addEventListener('pointermove', move);
@@ -665,17 +711,8 @@ function createComposerUI() {
                     <b>개떡찰떡</b>
                     <small>대필 없이, 쓴 문장만 찰떡같이</small>
                 </div>
-                <div class="gct-drag-handle" id="gct-drag-handle" role="button" tabindex="0" aria-label="탭 이동" title="끌어서 탭 이동">
-                    <i class="fa-solid fa-grip"></i>
-                </div>
-                <button type="button" class="gct-icon-button gct-dock-button" id="gct-dock" aria-label="입력창 위로 돌려놓기" title="입력창 위로 돌려놓기">
-                    <i class="fa-solid fa-thumbtack"></i>
-                </button>
                 <button type="button" class="gct-icon-button" id="gct-settings-toggle" aria-label="지시사항 설정" title="지시사항 설정">
                     <i class="fa-solid fa-gear"></i>
-                </button>
-                <button type="button" class="gct-icon-button" id="gct-widget-close" aria-label="개떡찰떡 숨기기" title="완전히 닫기">
-                    <i class="fa-solid fa-xmark"></i>
                 </button>
             </header>
 
@@ -737,26 +774,33 @@ function createComposerUI() {
         </div>
 
         <div id="gct-launcher" class="gct-launcher">
+            <div class="gct-drag-handle" id="gct-launcher-drag" role="button" tabindex="0" aria-label="메시지 다듬기 탭 이동" title="끌어서 탭 이동">
+                <i class="fa-solid fa-grip-vertical"></i>
+            </div>
             <button type="button" class="gct-launcher-label" id="gct-panel-toggle" aria-label="메시지 다듬기 탭 열기">
                 <i class="fa-solid fa-chevron-up"></i>
                 <span>메시지 다듬기</span>
+            </button>
+            <button type="button" class="gct-launcher-control gct-dock-button" id="gct-dock" aria-label="입력창 위로 돌려놓기" title="입력창 위로 돌려놓기">
+                <i class="fa-solid fa-thumbtack"></i>
+            </button>
+            <button type="button" class="gct-launcher-control" id="gct-widget-close" aria-label="개떡찰떡 탭 숨기기" title="탭 숨기기">
+                <i class="fa-solid fa-xmark"></i>
             </button>
             <button type="button" class="gct-rice-button" data-gct-run aria-label="빠른 교정 방식 선택" title="빠른 교정 방식 선택" aria-controls="gct-quick-menu" aria-expanded="false">
                 <img src="${ICON_PATH}" alt="">
             </button>
         </div>`;
 
-    if (getComputedStyle(sendForm).position === 'static') {
-        sendForm.style.setProperty('position', 'relative', 'important');
-    }
-    sendForm.append(root);
+    root.hidden = !settings.widgetVisible;
+    document.body.append(root);
     bindSharedControls(root);
     syncPromptFields();
     syncModeButtons();
     renderWordTags();
     updateSourceHint(true);
+    applyWidgetPosition();
     syncWidgetVisibility();
-    requestAnimationFrame(applyWidgetPosition);
 
     root.querySelector('.gct-rice-button').addEventListener('click', toggleQuickMenu);
     root.querySelectorAll('[data-gct-quick-mode]').forEach((button) => {
@@ -770,7 +814,7 @@ function createComposerUI() {
     root.querySelector('#gct-panel-toggle').addEventListener('click', togglePanel);
     root.querySelector('#gct-widget-close').addEventListener('click', () => setWidgetVisible(false));
     root.querySelector('#gct-dock').addEventListener('click', dockWidget);
-    root.querySelector('#gct-drag-handle').addEventListener('pointerdown', startWidgetDrag);
+    root.querySelector('#gct-launcher-drag').addEventListener('pointerdown', startWidgetDrag);
     root.querySelector('#gct-reset-prompts').addEventListener('click', resetPromptSettings);
     root.querySelector('#gct-clear').addEventListener('click', clearEditor);
     root.querySelector('#gct-process').addEventListener('click', processInPanel);
@@ -788,6 +832,14 @@ function createComposerUI() {
     document.addEventListener('pointerdown', (event) => {
         if (!event.target.closest('#gct-quick-menu, .gct-rice-button')) closeQuickMenu();
     });
+
+    if (typeof ResizeObserver === 'function') {
+        widgetResizeObserver?.disconnect();
+        widgetResizeObserver = new ResizeObserver(() => {
+            if (!settings.widgetPosition) applyWidgetPosition();
+        });
+        widgetResizeObserver.observe(sendForm);
+    }
 }
 
 async function createSettingsUI() {
@@ -824,8 +876,9 @@ async function initialize() {
     loadSettings();
     await createSettingsUI();
     createComposerUI();
-    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.5' });
+    appendDebug('개떡찰떡 시작', { version: '0.1.0-beta.6' });
     window.addEventListener('resize', applyWidgetPosition);
+    window.addEventListener('scroll', applyWidgetPosition, true);
 }
 
 const { eventSource, event_types } = getContext();
